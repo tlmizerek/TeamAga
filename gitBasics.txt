@@ -1,2 +1,5 @@
 git status  #tells you if you have untracked changes, what you have in the staging area. tells you if your branch is up to date with the master
-git add 
+git add filename #puts a file in the staging area
+git commit -m "message about the stuff I'm committing" #commits everything in the staging area.
+git pull #updates your repository with all the new changes
+git push #updates the group repository with my changes
