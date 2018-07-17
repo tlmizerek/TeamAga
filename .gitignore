@@ -21,3 +21,5 @@
 **/.netrc
 **/.urs_cookies
 **/venv/**
+~$*.xlsx
+
