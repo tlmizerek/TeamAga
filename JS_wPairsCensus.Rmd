@@ -1,0 +1,144 @@
+---
+output: 
+  html_document:
+    theme: paper
+    highlight: kate
+---
+
+#### Team Aga
+- - -
+
+#### Task 1
+
+```{r}
+if('pacman' %in% rownames(installed.packages()) == FALSE) {
+  install.packages('pacman', repos = "http://cran.case.edu")
+}
+pacman::p_load(gdata, rjags, rnoaa, ecoforecastR, MCMCvis)
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+Get the data.
+
+```{r, fig.align = 'center'}
+work1 = read.csv("C:/Users/naomi/Desktop/Travel/Workshops/NEFI/TeamAga/Mariana_Crow_MARK.csv")
+pairsData <- read.csv("C:/Users/naomi/Desktop/Travel/Workshops/NEFI/TeamAga/populationcounts.csv")
+
+M <- matrix(0, nrow = 100, ncol = nyears)
+f <- rep(0, dim(work1)[1])
+
+for(i in 1:dim(work1)[1]) {
+  for (j in 3:18) {
+    if (work1[i, j]==1 & f[i]==0) f[i] <- j - 2
+  }
+}
+
+f <- f[f>0]
+work2 <- work1[which(f>0), ]
+nyears <- 18 - 3 + 1
+y <- as.matrix(work2[, 3:18])
+nind <- dim(y)[1] + dim(M)[1]
+f <- c(f, rep(0, 100))
+data = list(y = rbind(y, M), nind = nind, nyears = nyears, nPairs = c(NA, pairsData$pairs[1:16]))
+    ```
+
+JAGS code for the jolly seber model.
+
+```{r}
+JS = "
+
+model {
+
+# Priors and constraints
+for (i in 1:nind) {
+  for (t in 1:(nyears - 1)) {
+    phi[i, t] <- mean.phi
+  } #t
+  for (t in 1:nyears) {
+    p[i, t] <- mean.p
+  } #t
+} #i
+
+mean.phi ~ dunif(0, 1)
+mean.p ~ dunif(0, 1) 
+
+for (t in 1:nyears) {
+  gamma[t] ~ dunif(0, 1) 
+} #t
+
+# Likelihood 
+
+for (i in 1:nind) {
+
+  # First time step
+
+  # State process
+  z[i, 1] ~ dbern(gamma[1])
+  # Observation process 
+  y[i, 1] ~ dbern(mu1[i])
+  mu1[i] <- z[i, 1] * p[i, 1] 
+
+  # Subsequent time steps
+
+  for (t in 2:nyears) {
+
+    #State process
+    q[i, t - 1] <- 1 - z[i, t - 1]
+    mu2[i, t] <- phi[i, t - 1] * z[i, t - 1] + gamma[t] * prod(q[i, 1:(t - 1)])
+    z[i, t] ~ dbern(mu2[i, t])
+
+    # Observation process
+    mu3[i, t] <- z[i, t] * p[i, t]
+    y[i, t] ~ dbern(mu3[i, t])
+
+  } #t
+
+} #i
+
+for (t in 1:nyears) {
+  N[t] <- sum(z[1:nind, t])
+  nPairs[t] ~ dbin(pObsPairs, N[t]) #number of pairs in the census
+} #t
+  pObsPairs ~ dunif(0,1)
+}
+"
+```
+
+```{r}
+rinits <- function() {
+  z <- matrix(1, nrow = nind, ncol = nyears)
+  for (i in 1:nind) {
+    for(j in 1:nyears) {
+      if (j >= f[i]) z[i, j] <- 1
+    }
+  }
+  mean.phi <- runif(1, .4, .6)
+  mean.p <- runif(1, .4, .6)
+  gamma <- runif(nyears, .4, .6)
+  pObsPairs <- runif(1, .4, .6)
+  return(list(z = z, mean.phi = mean.phi, mean.p = mean.p, pObsPairs = pObsPairs))
+}
+```
+
+```{r}
+params <- c("mean.phi", "mean.p", "N", "pObsPairs")
+jm <- jags.model(file = textConnection(JS), data = data, inits = rinits(), n.chains = 3, n.adapt = 5000)
+update(jm, n.iter = 1000)
+samples = coda.samples(jm, n.iter = 5000, variable.names = params, thin = 2)
+```
+
+```{r, fig.align = 'center'}
+MCMCvis::MCMCsummary(samples, params = c("mean.phi", "mean.p", "pObsPairs"), n.eff = TRUE)
+MCMCvis::MCMCtrace(samples, params = c("mean.phi", "mean.p", "pObsPairs"), pdf = F)
+```
+
+```{r, fig.align = 'center'}
+n <- apply(MCMCvis::MCMCchains(samples, params = "N"), 2, quantile, probs = c(.025, .5, .975))
+years <- seq(1999, 2014)
+plot(range(1999, 2015), range(0, 120), type = 'n', xlab = 'year', ylab = 'adult crows')
+ecoforecastR::ciEnvelope(years, n[1, ], n[3, ], col = "lightBlue")
+lines(years, n[2, ], lwd = 1, col = "blue", lty = 1, type = 'l')
+points(years, n[2, ], pch = 16, cex = 1.2)
+```
+
+
