@@ -3,6 +3,8 @@ output:
   html_document:
     theme: paper
     highlight: kate
+editor_options: 
+  chunk_output_type: console
 ---
 
 #### Team Aga
@@ -22,22 +24,11 @@ Get the data.
 
 ```{r, fig.align = 'center'}
 work1 = read.xls("Mariana_Crow_MARK.xlsx", sheet = 1)
-
+nyears <- 2013 - 1998 + 1
 M <- matrix(0, nrow = 100, ncol = nyears)
-f <- rep(0, dim(work1)[1])
-
-for(i in 1:dim(work1)[1]) {
-  for (j in 3:18) {
-    if (work1[i, j]==1 & f[i]==0) f[i] <- j - 2
-  }
-}
-
-f <- f[f>0]
-work2 <- work1[which(f>0), ]
-nyears <- 18 - 3 + 1
-y <- as.matrix(work2[, 3:18])
+ytemp <- as.matrix(work1[, 3:18])
+y <- ytemp[which(rowSums(ytemp)!=0),] 
 nind <- dim(y)[1] + dim(M)[1]
-f <- c(f, rep(0, 100))
 data = list(y = rbind(y, M), nind = nind, nyears = nyears)
     ```
 
@@ -104,24 +95,19 @@ for (t in 1:nyears) {
 
 ```{r}
 rinits <- function() {
-  z <- matrix(0, nrow = nind, ncol = nyears)
-  for (i in 1:nind) {
-    for(j in 1:nyears) {
-      if (j >= f[i]) z[i, j] <- 1
-    }
-  }
-  mean.phi <- runif(1, .4, .6)
-  mean.p <- runif(1, .4, .6)
+  z <- matrix(1, nrow = nind, ncol = nyears)
+  mean.phi <- runif(1, .9, .95)
+  mean.p <- runif(1, .1, .2)
   gamma <- runif(nyears, .4, .6)
-  return(list(z = z, mean.phi = mean.phi, mean.p = mean.p))
+  return(list(z = z, mean.phi = mean.phi, mean.p = mean.p, gamma = gamma))
 }
 ```
 
 ```{r}
 params <- c("mean.phi", "mean.p", "N")
-jm <- jags.model(file = textConnection(JS), data = data, inits = rinits(), n.chains = 3, n.adapt = 5000)
-update(jm, n.iter = 10000)
-samples = coda.samples(jm, n.iter = 20000, variable.names = params, thin = 2)
+jm <- jags.model(file = textConnection(JS), data = data, inits = rinits(), n.chains = 3, n.adapt = 1000)
+update(jm, n.iter = 5000)
+samples = coda.samples(jm, n.iter = 22000, variable.names = params, thin = 2)
 ```
 
 ```{r, fig.align = 'center'}
@@ -130,12 +116,12 @@ MCMCvis::MCMCtrace(samples, params = c("mean.phi", "mean.p"), pdf = F)
 ```
 
 ```{r, fig.align = 'center'}
-n <- apply(MCMCvis::MCMCchains(samples, params = "n"), 2, quantile, probs = c(.025, .5, .975))
-years <- seq(1999, 2013)
-plot(range(1999, 2013), range(0, 120), type = 'n', xlab = 'year', ylab = 'adult crows')
+n <- apply(MCMCvis::MCMCchains(samples, params = "N"), 2, quantile, probs = c(.025, .5, .975))
+years <- seq(1998, 2013)
+plot(range(1998, 2013), range(0, 80), type = 'n', xlab = 'year', ylab = 'crows')
 ecoforecastR::ciEnvelope(years, n[1, ], n[3, ], col = "lightBlue")
 lines(years, n[2, ], lwd = 1, col = "blue", lty = 1, type = 'l')
-points(years, n[2, ], pch = 16, cex = 1.2)
+points(years, n[2, ], pch = 16, cex = 1)
 ```
 
 
