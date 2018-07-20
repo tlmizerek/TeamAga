@@ -1,0 +1,357 @@
+---
+output: 
+  html_document:
+    theme: paper
+    highlight: kate
+editor_options: 
+  chunk_output_type: console
+---
+
+#### Team Aga
+- - -
+
+#### Task 1
+
+```{r}
+if('pacman' %in% rownames(installed.packages()) == FALSE) {
+  install.packages('pacman', repos = "http://cran.case.edu")
+}
+pacman::p_load(gdata, rjags, rnoaa, ecoforecastR, MCMCvis)
+knitr::opts_chunk$set(cache = TRUE)
+set.seed(3432)
+```
+
+Get the data.
+
+```{r, fig.align = 'center'}
+work1 = read.csv("C:/Users/naomi/Desktop/Travel/Workshops/NEFI/TeamAga/Mariana_Crow_MARK.csv")
+nyears <- 2013 - 1998 + 1
+M <- matrix(0, nrow = 100, ncol = nyears)
+ytemp <- as.matrix(work1[, 3:18])
+y <- ytemp[which(rowSums(ytemp)!=0),] 
+nind <- dim(y)[1] + dim(M)[1]
+data = list(y = rbind(y, M), nind = nind, nyears = nyears)
+    ```
+
+JAGS code for the jolly seber model.
+
+```{r}
+JS = "
+
+model {
+
+# Priors and constraints
+for (i in 1:nind) {
+  for (t in 1:(nyears - 1)) {
+    phi[i, t] <- mean.phi
+  } #t
+  for (t in 1:nyears) {
+    p[i, t] <- mean.p
+  } #t
+} #i
+
+mean.phi ~ dunif(0, 1)
+mean.p ~ dunif(0, 1) 
+igamma ~ dunif(0, 1)
+beta[1] ~ dnorm(0, .367)
+beta[2] ~ dnorm(0, .367)
+
+# Likelihood 
+
+for (i in 1:nind) {
+
+  # First time step
+
+  # State process
+  z[i, 1] ~ dbern(igamma)
+  # Observation process 
+  y[i, 1] ~ dbern(mu1[i])
+  mu1[i] <- z[i, 1] * p[i, 1] 
+
+  # Subsequent time steps
+
+  for (t in 2:nyears) {
+
+    #State process
+    q[i, t - 1] <- 1 - z[i, t - 1]
+    logit(gamma[i, t]) <- beta[1] + beta[2] * time[t]
+    mu2[i, t] <- phi[i, t - 1] * z[i, t - 1] + gamma[i, t] * prod(q[i, 1:(t - 1)])
+    z[i, t] ~ dbern(mu2[i, t])
+
+    # Observation process
+    mu3[i, t] <- z[i, t] * p[i, t]
+    y[i, t] ~ dbern(mu3[i, t])
+
+  } #t
+
+} #i
+
+for (t in 1:nyears) {
+  N[t] <- sum(z[1:nind, t])
+} #t
+
+}
+"
+```
+
+```{r}
+
+samples = readRDS("C:/Users/naomi/Desktop/Travel/Workshops/NEFI/TeamAga/JSTimeTrendGammaPlusForecastPLusZ.rda")
+```
+
+```{r, fig.align = 'center'}
+MCMCvis::MCMCsummary(samples, params = c("mean.phi", "mean.p"), n.eff = TRUE)
+MCMCvis::MCMCtrace(samples, params = c("mean.phi", "mean.p"), pdf = F)
+```
+
+```{r, fig.align = 'center'}
+n <- apply(MCMCvis::MCMCchains(samples, params = "N"), 2, quantile, probs = c(.025, .5, .975))[,1:16]
+years <- seq(1998, 2013)
+plot(range(1998, 2013), range(0, 80), type = 'n', xlab = 'year', ylab = 'crows')
+ecoforecastR::ciEnvelope(years, n[1, ], n[3, ], col = "lightgrey29")
+lines(years, n[2, ], lwd = 1, col = "grey29", lty = 1, type = 'l')
+points(years, n[2, ], pch = 16, cex = 1)
+```
+
+
+
+
+
+
+```{r}
+t=MCMCvis::MCMCsummary(samples, params = c("mean.phi", "mean.p"), n.eff = TRUE)
+mean.phi=(t[[1]])
+
+out <- as.matrix(samples)
+ic.last <- out[,17] ## grab all columns that start with the letter x
+mean.ic=mean(ic.last)
+
+```
+
+
+
+
+```{r}
+##` @param ic    Initial Conditions
+##` @param phi   survival
+##` @param p     detection
+##` @param n     Size of Monte Carlo ensemble
+##` @param nt     Number of time steps
+
+forecastN.1 <- function(IC,phi,n=Nmc, NT, nind, nsim, times, beta1, beta2){
+  N=matrix(NA,n,NT)
+  z = array(NA, dim = c(nind, NT, nsim))
+  z[,1,]=IC
+  for(s in 1:nsim){
+   for (t in 2:NT){ 
+     gamma <- inv.logit(beta1 + beta2 * times[t])
+     for (i in 1:nind){
+        q <- sum(z[i, 1:(t-1),s])  < 1
+        mu2 <- phi * z[i, t-1,s] + gamma * q
+        z[i, t, s] <- rbinom(1, 1, mu2)
+     }
+    }
+  }
+  Ns <- apply(z, c(3, 2), sum)
+   #N <- apply(z, 2, sum)
+  
+  return(Ns)
+
+}
+```
+```{r}
+out.mat <- as.matrix(samples)
+rows2use <- sample.int(nrow(out.mat), 2500, replace = T)
+zcols <- out.mat[,grep('z', colnames(out.mat))]
+initCols <- zcols[,grep(',16]', colnames(zcols))]
+meanIC <- colMeans(initCols)
+ICvec <- ifelse(meanIC <= 0.5, 0, 1)
+times <- 17:26
+
+phi.col <- out.mat[,grep('phi', colnames(out.mat))]
+phi.const <- mean(phi.col)
+
+library(dplyr)
+beta1.col <- out.mat[,grepl('beta\\[1\\]', colnames(out.mat))]
+beta1.mean <- mean(beta1.col)
+
+beta2.col <- out.mat[,grepl('beta\\[2\\]', colnames(out.mat))]
+beta2.mean <- mean(beta2.col)
+
+N.I <- forecastN.1(IC=ICvec,  ## sample IC
+                   phi=phi.const,
+                   n=length(rows2use),
+                    nind = length(ICvec),
+                  NT = 10,
+                 nsim = 100, 
+                 beta1 = beta1.mean,
+                 beta2 = beta2.mean, 
+                 times = times)
+```
+```{r}
+time2=2015:2024
+years=1999:2014
+## Plot run
+library(ecoforecastR)
+N.I.ci = apply(N.I, 2, quantile, c(0.025, 0.5,0.975))
+plot(0,0, type = 'n', xlim = c(1999, 2024), ylim = c(0, 120), xlab = 'year', ylab = 'Crows')
+ecoforecastR::ciEnvelope(time2,N.I.ci[1,],N.I.ci[3,],col=col.alpha("grey", 0.5))
+lines(time2, N.I.ci[2,])
+ecoforecastR::ciEnvelope(years, n[1, ], n[3, ], col = "lightgrey29")
+lines(years, n[2, ], lwd = 1, col = "grey29", lty = 1, type = 'l')
+points(years, n[2, ], pch = 16, cex = 1)
+points(time2, N.I.ci[2,], pch = '*', col = 'purple', cex = 2)
+
+```
+```{r}
+forecastN <- function(IC,phi,n=Nmc, NT, nind,  beta1, beta2, times){
+  N=matrix(NA,n,NT)
+  for(j in 1:length(phi)){
+  z = array(NA, dim = c(nind, NT))
+  z[,1]=IC
+   for (t in 2:NT){  
+      gamma <- inv.logit(beta1[j] + beta2[j] * times[t])
+     for (i in 1:nind){
+        q <- sum(z[i, 1:(t-1)])  < 1
+        mu2 <- phi[j] * z[i, t-1] + gamma * q
+        z[i, t] <- rbinom(1, 1, mu2)
+     }
+    }
+
+   N[j,] <- apply(z, 2, sum)
+  }  
+  return(N)
+}
+```
+
+Forecasting parameter uncertainty
+```{r}
+phi <- phi.col[rows2use]
+beta1 <- beta1.col[rows2use]
+beta2 <- beta2.col[rows2use]
+
+
+N.IPhi <- forecastN(IC=ICvec,  ## sample IC
+                   phi=phi,
+                   n=length(rows2use),
+                    nind = length(ICvec),
+                  NT = 10,
+                  beta1 = beta1,
+                  beta2 = beta2,
+                  times = times)
+N.I.phi.ci = apply(N.IPhi, 2, quantile, c(0.025, 0.5,0.975), na.rm= T)
+plot(0,0, type = 'n', xlim = c(1999, 2024), ylim = c(0,200))
+ecoforecastR::ciEnvelope(time2,N.I.phi.ci[1,],N.I.phi.ci[3,],col="grey")
+lines(time2, N.I.phi.ci[2,])
+ecoforecastR::ciEnvelope(years, n[1, ], n[3, ], col = "lightgrey29")
+lines(years, n[2, ], lwd = 1, col = "grey29", lty = 1, type = 'l')
+points(years, n[2, ], pch = 16, cex = 1)
+points(time2, N.I.ci[2,], pch = '*', col = 'purple', cex = 2)
+
+dim(initCols)
+```
+```{r}
+
+forecastN <- function(IC,phi,n=Nmc, NT, nind,  beta1, beta2, times){
+  N=matrix(NA,n,NT)
+  for(j in 1:length(phi)){
+  z = array(NA, dim = c(nind, NT))
+  z[,1]=IC[j]
+   for (t in 2:NT){  
+      gamma <- inv.logit(beta1[j] + beta2[j] * times[t])
+     for (i in 1:nind){
+        q <- sum(z[i, 1:(t-1)])  < 1
+        mu2 <- phi[j] * z[i, t-1] + gamma * q
+        z[i, t] <- rbinom(1, 1, mu2)
+     }
+    }
+
+   N[j,] <- apply(z, 2, sum)
+  }  
+  return(N)
+}
+
+ic=initCols[rows2use,]
+N.Iic <- forecastN(IC=ic,  ## sample IC
+                   phi=phi,
+                   n=length(rows2use),
+                    nind = length(ICvec),
+                  NT = 10,
+                  beta1 = beta1,
+                  beta2 = beta2,
+                  times = times)
+
+N.I.init.ci = apply(N.Iic, 2, quantile, c(0.025, 0.5,0.975))
+plot(0,0, type = 'n', xlim = c(1999, 2024), ylim = c(0,200))
+ecoforecastR::ciEnvelope(time2,N.I.init.ci[1,],N.I.init.ci[3,],col="green")
+ecoforecastR::ciEnvelope(time2,N.I.phi.ci[1,],N.I.phi.ci[3,],col="grey29")
+ecoforecastR::ciEnvelope(time2,N.I.ci[1,],N.I.ci[3,],col="grey")
+
+ecoforecastR::ciEnvelope(years, n[1, ], n[3, ], col = "lightgrey29")
+lines(years, n[2, ], lwd = 1, col = "grey29", lty = 1, type = 'l')
+points(years, n[2, ], pch = 16, cex = 1)
+points(time2, N.I.ci[2,], pch = '*', col = 'purple', cex = 2)
+
+```
+
+```{r}
+#make a few final plots
+
+##observation error only
+plot(0,0, type = 'n', xlim = c(1999, 2024), ylim = c(0, 200), xlab = 'year', ylab = 'Crows', main = "Process error only")
+ecoforecastR::ciEnvelope(time2,N.I.ci[1,],N.I.ci[3,],col=col.alpha("#66c2a5", 1))
+lines(time2, N.I.ci[2,])
+ecoforecastR::ciEnvelope(years, n[1, ], n[3, ], col = "gray")
+lines(years, n[2, ], lwd = 1, col = "grey29", lty = 1, type = 'l')
+points(years, n[2, ], pch = 16, cex = 1)
+points(time2, N.I.ci[2,], pch = '*', col = 'black', cex = 2)
+
+
+plot(0,0, type = 'n', xlim = c(1999, 2024), ylim = c(0, 200), xlab = 'year', ylab = 'Crows', main = "Parameter + Process error")
+ecoforecastR::ciEnvelope(time2,N.I.phi.ci[1,],N.I.phi.ci[3,],col="#fc8d62")
+lines(time2, N.I.phi.ci[2,])
+ecoforecastR::ciEnvelope(years, n[1, ], n[3, ], col = "gray")
+lines(years, n[2, ], lwd = 1, col = "grey29", lty = 1, type = 'l')
+points(years, n[2, ], pch = 16, cex = 1)
+
+ecoforecastR::ciEnvelope(time2,N.I.ci[1,],N.I.ci[3,],col=col.alpha("#66c2a5", 1))
+lines(time2, N.I.ci[2,])
+points(time2, N.I.ci[2,], pch = '*', col = 'black', cex = 2)
+
+
+plot(0,0, type = 'n', xlim = c(1999, 2024), ylim = c(0, 200), xlab = 'year', ylab = 'Crows', main = "Parameter + Process + IC error")
+ecoforecastR::ciEnvelope(time2,N.I.init.ci[1,],N.I.init.ci[3,],col="#8da0cb")
+lines(time2, N.I.phi.ci[2,])
+ecoforecastR::ciEnvelope(years, n[1, ], n[3, ], col = "gray")
+lines(years, n[2, ], lwd = 1, col = "grey29", lty = 1, type = 'l')
+points(years, n[2, ], pch = 16, cex = 1)
+
+ecoforecastR::ciEnvelope(time2,N.I.phi.ci[1,],N.I.phi.ci[3,],col="#fc8d62")
+lines(time2, N.I.phi.ci[2,])
+
+ecoforecastR::ciEnvelope(time2,N.I.ci[1,],N.I.ci[3,],col=col.alpha("#66c2a5", 1))
+lines(time2, N.I.ci[2,])
+points(time2, N.I.ci[2,], pch = '*', col = 'black', cex = 2)
+
+
+##Plot relative importance of different errors over time.
+### calculation of variances
+varI     <- apply(N.I,2,var)
+varIPhi    <- apply(N.IPhi,2,var)
+varIPhiIC  <- apply(N.Iic,2,var)
+varMat   <- rbind(varI,varIPhi,varIPhiIC)
+
+N.cols <- c("#66c2a5", "#fc8d62", "#8da0cb")
+
+## out-of-sample stacked area plot
+V.pred.rel <- apply(varMat,2,function(x) {x/max(x)})
+plot(time2,V.pred.rel[1,],ylim=c(0,1),type='n',main="Relative Variance: Out-of-Sample",ylab="Proportion of Variance",xlab="time")
+ciEnvelope(time2,rep(0,ncol(V.pred.rel)),V.pred.rel[1,],col=N.cols[1])
+ciEnvelope(time2,V.pred.rel[1,],V.pred.rel[2,],col=N.cols[2])
+ciEnvelope(time2,V.pred.rel[2,],V.pred.rel[3,],col=N.cols[3])
+legend("topleft",legend=c("Process","Parameter","InitCond"),col=N.cols,lty=1,lwd=5)
+
+
+
+```
+
