@@ -106,7 +106,7 @@ rinits <- function() {
 ```
 
 ```{r}
-params <- c("mean.phi", "mean.p", "N", "beta", "igamma")
+params <- c("mean.phi", "mean.p", "N", "beta", "igamma", "z")
 jm <- jags.model(file = textConnection(JS), data = data, inits = rinits(), n.chains = 3, n.adapt = 1000)
 update(jm, n.iter = 10000)
 samples = coda.samples(jm, n.iter = 5000, variable.names = params, thin = 1)
@@ -115,7 +115,7 @@ samples = coda.samples(jm, n.iter = 5000, variable.names = params, thin = 1)
 ```{r, fig.align = 'center'}
 MCMCvis::MCMCsummary(samples, params = c("mean.phi", "mean.p", "beta", "igamma"), n.eff = TRUE)
 MCMCvis::MCMCtrace(samples, params = c("mean.phi", "mean.p", "beta", "igamma"), pdf = F)
-saveRDS(samples, file = "JSTimeTrendGammaPlusForecast.rda")
+saveRDS(samples, file = "JSTimeTrendGammaPlusForecastPLusZ.rda")
 ```
 
 ```{r, fig.align = 'center'}
@@ -152,7 +152,6 @@ MCMCvis::MCMCsummary(samples2, params = c("mean.phi", "mean.p", "beta", "igamma"
 ```{r, fig.align = 'center'}
 n <- apply(MCMCvis::MCMCchains(samples, params = "N"), 2, quantile, probs = c(.025, .5, .975))
 n2 <- apply(MCMCvis::MCMCchains(samples2, params = "N"), 2, quantile, probs = c(.025, .5, .975))
-n2
 years <- seq(1998, 2018)
 plot(range(1998, 2018), range(0, 100), type = 'n', xlab = 'year', ylab = 'crows')
 ecoforecastR::ciEnvelope(years[1:16], n[1, 1:16], n[3, 1:16], col = "lightBlue")
