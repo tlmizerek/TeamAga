@@ -1,0 +1,151 @@
+---
+output: 
+  html_document:
+    theme: paper
+    highlight: kate
+editor_options: 
+  chunk_output_type: console
+---
+
+#### Team Aga
+- - -
+
+```{r}
+if('pacman' %in% rownames(installed.packages()) == FALSE) {
+  install.packages('pacman', repos = "http://cran.case.edu")
+}
+pacman::p_load(gdata, rjags, rnoaa, ecoforecastR, MCMCvis)
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+Get the data.
+
+```{r, fig.align = 'center'}
+work1 = read.xls("Mariana_Crow_MARK.xlsx", sheet = 1)
+nyears <- 2013 - 1998 + 1
+M <- matrix(0, nrow = 100, ncol = nyears)
+ytemp <- as.matrix(work1[, 3:18])
+y <- ytemp[which(rowSums(ytemp)!=0),] 
+nind <- dim(y)[1] + dim(M)[1]
+data = list(y = rbind(y, M), nind = nind, nyears = nyears, time = seq(1:(nyears + 5)))
+```
+
+JAGS code for the jolly seber model.
+
+```{r}
+JS = "
+
+model {
+
+# Priors and constraints
+for (i in 1:nind) {
+  for (t in 1:(nyears + 5 - 1)) {
+    phi[i, t] <- mean.phi
+  } #t
+  for (t in 1:(nyears + 5)) {
+    p[i, t] <- mean.p
+  } #t
+} #i
+
+mean.phi ~ dunif(0, 1)
+mean.p ~ dunif(0, 1) 
+igamma ~ dunif(0, 1)
+beta[1] ~ dnorm(0, .367)
+beta[2] ~ dnorm(0, .367)
+
+# Likelihood 
+
+for (i in 1:nind) {
+
+  # First time step
+
+  # State process
+  z[i, 1] ~ dbern(igamma)
+  # Observation process 
+  y[i, 1] ~ dbern(mu1[i])
+  mu1[i] <- z[i, 1] * p[i, 1] 
+
+  # Subsequent time steps
+
+  for (t in 2:(nyears + 5)) {
+
+    # State process
+    q[i, t - 1] <- 1 - z[i, t - 1]
+    logit(gamma[i, t]) <- beta[1] + beta[2] * time[t]
+    mu2[i, t] <- phi[i, t - 1] * z[i, t - 1] + gamma[i, t] * prod(q[i, 1:(t - 1)])
+    z[i, t] ~ dbern(mu2[i, t])
+
+  } #t
+
+  for (t in 2:nyears) {
+
+    # Observation process
+    mu3[i, t] <- z[i, t] * p[i, t]
+    y[i, t] ~ dbern(mu3[i, t])
+
+  } #t
+
+} #i
+
+for (t in 1:(nyears + 5)) {
+  N[t] <- sum(z[1:nind, t])
+} #t
+
+}
+"
+```
+
+```{r}
+rinits <- function() {
+  z <- matrix(1, nrow = nind, ncol = (nyears + 5))
+  mean.phi <- runif(1, .7, .8)
+  mean.p <- runif(1, .5, .6)
+  beta <- runif(2, -1, 1)
+  return(list(z = z, mean.phi = mean.phi, mean.p = mean.p, beta = beta))
+}
+```
+
+```{r}
+params <- c("mean.phi", "mean.p", "N", "beta", "igamma")
+jm <- jags.model(file = textConnection(JS), data = data, inits = rinits(), n.chains = 3, n.adapt = 1000)
+update(jm, n.iter = 10000)
+samples = coda.samples(jm, n.iter = 5000, variable.names = params, thin = 1)
+```
+
+```{r, fig.align = 'center'}
+MCMCvis::MCMCsummary(samples, params = c("mean.phi", "mean.p", "beta", "igamma"), n.eff = TRUE)
+MCMCvis::MCMCtrace(samples, params = c("mean.phi", "mean.p", "beta", "igamma"), pdf = F)
+saveRDS(samples, file = "JSTimeTrendGammaPlusForecast.rda")
+```
+
+```{r, fig.align = 'center'}
+n <- apply(MCMCvis::MCMCchains(samples, params = "N"), 2, quantile, probs = c(.025, .5, .975))
+years <- seq(1998, 2018)
+plot(range(1998, 2018), range(0, 80), type = 'n', xlab = 'year', ylab = 'crows')
+ecoforecastR::ciEnvelope(years[1:17], n[1, 1:17], n[3, 1:17], col = "lightBlue")
+ecoforecastR::ciEnvelope(years[17:21], n[1, 17:21], n[3, 17:21], col = "lightgreen")
+lines(years, n[2, ], lwd = 1, col = "blue", lty = 1, type = 'l')
+points(years, n[2, ], pch = 16, cex = 1)
+```
+
+```{r, fig.align = 'center'}
+work1 = read.xls("Mariana_Crow_MARK.xlsx", sheet = 1)
+nyears <- 2014 - 1998 + 1
+M <- matrix(0, nrow = 100, ncol = nyears)
+ytemp <- as.matrix(work1[, 3:19])
+y <- ytemp[which(rowSums(ytemp)!=0),] 
+nind <- dim(y)[1] + dim(M)[1]
+data = list(y = rbind(y, M), nind = nind, nyears = nyears, time = seq(1:(nyears + 5)))
+```
+
+```{r}
+params <- c("mean.phi", "mean.p", "N", "beta", "igamma")
+jm2 <- jags.model(file = textConnection(JS), data = data, inits = rinits(), n.chains = 3, n.adapt = 1000)
+update(jm2, n.iter = 10000)
+samples2 = coda.samples(jm, n.iter = 5000, variable.names = params, thin = 1)
+```
+
+```{r, fig.align = 'center'}
+MCMCvis::MCMCsummary(samples2, params = c("mean.phi", "mean.p", "beta", "igamma"), n.eff = TRUE)
+MCMCvis::MCMCtrace(samples2, params = c("mean.phi", "mean.p", "beta", "igamma"), pdf = F)
+```
