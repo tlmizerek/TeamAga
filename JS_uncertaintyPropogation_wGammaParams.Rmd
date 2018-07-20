@@ -256,7 +256,7 @@ forecastN <- function(IC,phi,n=Nmc, NT, nind,  beta1, beta2, times){
   N=matrix(NA,n,NT)
   for(j in 1:length(phi)){
   z = array(NA, dim = c(nind, NT))
-  z[,1]=IC[j]
+  z[,1]=IC[j,]
    for (t in 2:NT){  
       gamma <- inv.logit(beta1[j] + beta2[j] * times[t])
      for (i in 1:nind){
@@ -281,7 +281,7 @@ N.Iic <- forecastN(IC=ic,  ## sample IC
                   beta2 = beta2,
                   times = times)
 
-N.I.init.ci = apply(N.Iic, 2, quantile, c(0.025, 0.5,0.975))
+N.I.init.ci = apply(N.Iic, 2, quantile, c(0.025, 0.5,0.975), na.rm = T)
 plot(0,0, type = 'n', xlim = c(1999, 2024), ylim = c(0,200))
 ecoforecastR::ciEnvelope(time2,N.I.init.ci[1,],N.I.init.ci[3,],col="green")
 ecoforecastR::ciEnvelope(time2,N.I.phi.ci[1,],N.I.phi.ci[3,],col="grey29")
