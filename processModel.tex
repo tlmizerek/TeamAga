@@ -1,0 +1,12 @@
+\documentclass[10pt]{article}
+\usepackage[usenames]{color} %used for font color
+\usepackage{amssymb} %maths
+\usepackage{amsmath} %maths
+\usepackage[utf8]{inputenc} %useful to type directly diacritic characters
+\begin{document}
+\begin{align*} 
+q_{i, t-1} &= 1 - z_{i, t-1}\\
+\mu_{i, t} &= \phi z_{i, t-1} + \gamma \prod_{T=1}^{t-1} q_{i,.}\\ 
+z_{i, t} &\sim \textrm{Bernoulli}(\mu_{i, t})\\
+\end{align*}
+\end{document}
