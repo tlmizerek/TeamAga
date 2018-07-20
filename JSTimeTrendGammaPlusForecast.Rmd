@@ -47,7 +47,10 @@ for (i in 1:nind) {
   } #t
 } #i
 
-mean.phi ~ dunif(0, 1)
+a <- (.84^2 - .84^3 - .84 * .03^2)/.03^2
+b <- (.84 - 2*.84^2 + .84^3 - .03^2 + .84 * .03^2)/.03^2
+
+mean.phi ~ dbeta(a, b)
 mean.p ~ dunif(0, 1) 
 igamma ~ dunif(0, 1)
 beta[1] ~ dnorm(0, .367)
@@ -98,10 +101,10 @@ for (t in 1:(nyears + 5)) {
 ```{r}
 rinits <- function() {
   z <- matrix(1, nrow = nind, ncol = (nyears + 5))
-  mean.phi <- runif(1, .7, .8)
+  mean.phi <- runif(1, .83, .84)
   mean.p <- runif(1, .5, .6)
   beta <- runif(2, -1, 1)
-  return(list(z = z, mean.phi = mean.phi, mean.p = mean.p, beta = beta))
+  return(list(z = z, mean.p = mean.p, beta = beta, mean.phi = mean.phi))
 }
 ```
 
@@ -115,7 +118,7 @@ samples = coda.samples(jm, n.iter = 5000, variable.names = params, thin = 1)
 ```{r, fig.align = 'center'}
 MCMCvis::MCMCsummary(samples, params = c("mean.phi", "mean.p", "beta", "igamma"), n.eff = TRUE)
 MCMCvis::MCMCtrace(samples, params = c("mean.phi", "mean.p", "beta", "igamma"), pdf = F)
-saveRDS(samples, file = "JSTimeTrendGammaPlusForecastPLusZ.rda")
+saveRDS(samples, file = "JSTimeTrendGammaPlusForecastPLusZ.75.rda")
 ```
 
 ```{r, fig.align = 'center'}
