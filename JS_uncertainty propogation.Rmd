@@ -1,0 +1,265 @@
+---
+output: 
+  html_document:
+    theme: paper
+    highlight: kate
+editor_options: 
+  chunk_output_type: console
+---
+
+#### Team Aga
+- - -
+
+#### Task 1
+
+```{r}
+if('pacman' %in% rownames(installed.packages()) == FALSE) {
+  install.packages('pacman', repos = "http://cran.case.edu")
+}
+pacman::p_load(gdata, rjags, rnoaa, ecoforecastR, MCMCvis)
+knitr::opts_chunk$set(cache = TRUE)
+set.seed(3432)
+```
+
+Get the data.
+
+```{r, fig.align = 'center'}
+work1 = read.csv("C:/work/nefi course/TeamAga/Mariana_Crow_MARK.csv")
+nyears <- 2013 - 1998 + 1
+M <- matrix(0, nrow = 100, ncol = nyears)
+ytemp <- as.matrix(work1[, 3:18])
+y <- ytemp[which(rowSums(ytemp)!=0),] 
+nind <- dim(y)[1] + dim(M)[1]
+data = list(y = rbind(y, M), nind = nind, nyears = nyears)
+    ```
+
+JAGS code for the jolly seber model.
+
+```{r}
+JS = "
+
+model {
+
+# Priors and constraints
+for (i in 1:nind) {
+  for (t in 1:(nyears - 1)) {
+    phi[i, t] <- mean.phi
+  } #t
+  for (t in 1:nyears) {
+    p[i, t] <- mean.p
+  } #t
+} #i
+
+mean.phi ~ dunif(0, 1)
+mean.p ~ dunif(0, 1) 
+
+for (t in 1:nyears) {
+  gamma[t] ~ dunif(0, 1) 
+} #t
+
+# Likelihood 
+
+for (i in 1:nind) {
+
+  # First time step
+
+  # State process
+  z[i, 1] ~ dbern(gamma[1])
+  # Observation process 
+  y[i, 1] ~ dbern(mu1[i])
+  mu1[i] <- z[i, 1] * p[i, 1] 
+
+  # Subsequent time steps
+
+  for (t in 2:nyears) {
+
+    #State process
+    q[i, t - 1] <- 1 - z[i, t - 1]
+    mu2[i, t] <- phi[i, t - 1] * z[i, t - 1] + gamma[t] * prod(q[i, 1:(t - 1)])
+    z[i, t] ~ dbern(mu2[i, t])
+
+    # Observation process
+    mu3[i, t] <- z[i, t] * p[i, t]
+    y[i, t] ~ dbern(mu3[i, t])
+
+  } #t
+
+} #i
+
+for (t in 1:nyears) {
+  N[t] <- sum(z[1:nind, t])
+} #t
+
+}
+"
+```
+
+```{r}
+rinits <- function() {
+  z <- matrix(1, nrow = nind, ncol = nyears)
+  mean.phi <- runif(1, .9, .95)
+  mean.p <- runif(1, .1, .2)
+  gamma <- runif(nyears, .4, .6)
+  return(list(z = z, mean.phi = mean.phi, mean.p = mean.p, gamma = gamma))
+}
+```
+
+```{r}
+params <- c("mean.phi", "mean.p", "N")
+jm <- jags.model(file = textConnection(JS), data = data, inits = rinits(), n.chains = 3, n.adapt = 1000)
+update(jm, n.iter = 5000)
+samples = coda.samples(jm, n.iter = 5000, variable.names = params, thin = 2)
+```
+
+```{r, fig.align = 'center'}
+MCMCvis::MCMCsummary(samples, params = c("mean.phi", "mean.p"), n.eff = TRUE)
+MCMCvis::MCMCtrace(samples, params = c("mean.phi", "mean.p"), pdf = F)
+```
+
+```{r, fig.align = 'center'}
+n <- apply(MCMCvis::MCMCchains(samples, params = "N"), 2, quantile, probs = c(.025, .5, .975))
+years <- seq(1998, 2013)
+plot(range(1998, 2013), range(0, 80), type = 'n', xlab = 'year', ylab = 'crows')
+ecoforecastR::ciEnvelope(years, n[1, ], n[3, ], col = "lightBlue")
+lines(years, n[2, ], lwd = 1, col = "blue", lty = 1, type = 'l')
+points(years, n[2, ], pch = 16, cex = 1)
+```
+
+
+
+
+
+
+```{r}
+t=MCMCvis::MCMCsummary(samples, params = c("mean.phi", "mean.p"), n.eff = TRUE)
+mean.phi=(t[[1]])
+
+out <- as.matrix(samples)
+ic.last <- out[,17] ## grab all columns that start with the letter x
+mean.ic=mean(ic.last)
+
+```
+
+
+
+
+```{r}
+load("C:/work/nefi course/TeamAga/jagsResults_wPairsCensus.Rdata")
+##` @param ic    Initial Conditions
+##` @param phi   survival
+##` @param p     detection
+##` @param n     Size of Monte Carlo ensemble
+##` @param nt     Number of time steps
+
+forecastN.1 <- function(IC,phi,n=Nmc, NT, nind, gamma, nsim){
+  N=matrix(NA,n,NT)
+  z = array(NA, dim = c(nind, NT, nsim))
+  z[,1,]=IC
+  for(s in 1:nsim){
+   for (t in 2:NT){    
+     for (i in 1:nind){
+        q <- sum(z[i, 1:(t-1),s])  < 1
+        mu2 <- phi * z[i, t-1,s] + gamma * q
+        z[i, t, s] <- rbinom(1, 1, mu2)
+     }
+    }
+  }
+  Ns <- apply(z, c(3, 2), sum)
+   #N <- apply(z, 2, sum)
+  
+  return(Ns)
+
+}
+```
+```{r}
+out.mat <- as.matrix(samples)
+rows2use <- sample.int(nrow(out.mat), 2500, replace = T)
+zcols <- out.mat[,grep('z', colnames(out.mat))]
+initCols <- zcols[,grep(',16]', colnames(zcols))]
+meanIC <- colMeans(initCols)
+ICvec <- ifelse(meanIC <= 0.5, 0, 1)
+
+phi.col <- out.mat[,grep('phi', colnames(out.mat))]
+phi.const <- mean(phi.col)
+
+N.I <- forecastN.1(IC=ICvec,  ## sample IC
+                   phi=phi.const,
+                   gamma = 0.1,
+                   n=length(rows2use),
+                    nind = length(ICvec),
+                  NT = 10,
+                 nsim = 100)
+```
+```{r}
+time2=2015:2024
+years=1999:2014
+## Plot run
+library(ecoforecastR)
+N.I.ci = apply(N.I, 2, quantile, c(0.025, 0.5,0.975))
+plot(0,0, type = 'n', xlim = c(1999, 2024), ylim = c(0,200))
+ecoforecastR::ciEnvelope(time2,N.I.ci[1,],N.I.ci[3,],col="grey")
+lines(time2, N.I.ci[2,])
+ecoforecastR::ciEnvelope(years, n[1, ], n[3, ], col = "lightBlue")
+lines(years, n[2, ], lwd = 1, col = "blue", lty = 1, type = 'l')
+points(years, n[2, ], pch = 16, cex = 1)
+
+```
+```{r}
+forecastN <- function(IC,phi,n=Nmc, NT, nind, gamma){
+  N=matrix(NA,n,NT)
+  for(j in 1:length(phi)){
+  z = array(NA, dim = c(nind, NT))
+  z[,1]=IC[j]
+   for (t in 2:NT){    
+     for (i in 1:nind){
+        q <- sum(z[i, 1:(t-1)])  < 1
+        mu2 <- phi[j] * z[i, t-1] + gamma * q
+        z[i, t] <- rbinom(1, 1, mu2)
+     }
+    }
+
+   N[j,] <- apply(z, 2, sum)
+  }  
+  return(N)
+
+}
+```
+```{r}
+phi <- phi.col[rows2use]
+
+N.IPhi <- forecastN(IC=ICvec,  ## sample IC
+                   phi=phi,
+                   gamma = 0.1,
+                   n=length(rows2use),
+                    nind = length(ICvec),
+                  NT = 10)
+N.I.phi.ci = apply(N.IPhi, 2, quantile, c(0.025, 0.5,0.975))
+plot(0,0, type = 'n', xlim = c(1999, 2024), ylim = c(0,200))
+ecoforecastR::ciEnvelope(time2,N.I.phi.ci[1,],N.I.phi.ci[3,],col="grey")
+lines(time2, N.I.phi.ci[2,])
+ecoforecastR::ciEnvelope(years, n[1, ], n[3, ], col = "lightBlue")
+lines(years, n[2, ], lwd = 1, col = "blue", lty = 1, type = 'l')
+points(years, n[2, ], pch = 16, cex = 1)
+
+dim(initCols)
+```
+```{r}
+ic=initCols[rows2use,]
+N.Iic <- forecastN(IC=ic,  ## sample IC
+                   phi=phi,
+                   gamma = 0.1,
+                   n=length(rows2use),
+                    nind = length(ICvec),
+                  NT = 10)
+
+N.I.init.ci = apply(N.Iic, 2, quantile, c(0.025, 0.5,0.975))
+plot(0,0, type = 'n', xlim = c(1999, 2024), ylim = c(0,200))
+ecoforecastR::ciEnvelope(time2,N.I.init.ci[1,],N.I.init.ci[3,],col="green")
+ecoforecastR::ciEnvelope(time2,N.I.phi.ci[1,],N.I.phi.ci[3,],col="blue")
+ecoforecastR::ciEnvelope(time2,N.I.ci[1,],N.I.ci[3,],col="grey")
+
+ecoforecastR::ciEnvelope(years, n[1, ], n[3, ], col = "lightBlue")
+lines(years, n[2, ], lwd = 1, col = "blue", lty = 1, type = 'l')
+points(years, n[2, ], pch = 16, cex = 1)
+
+```
